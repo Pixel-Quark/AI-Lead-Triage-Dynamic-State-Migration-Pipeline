@@ -1,0 +1,823 @@
+{
+  "name": "Custom Lead Triage & Dynamic State Migration System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-qualify-copy",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -768,
+        -16
+      ],
+      "id": "9fbb62ec-e2de-4965-a5f6-455d65cd7129",
+      "name": "Webhook",
+      "webhookId": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Input').first().json.client_email }}",
+        "subject": "=Welcome back, {{ $('Validate Input').first().json.client_name }}!",
+        "message": "=<p>Hi <strong>{{ $('Validate Input').first().json.client_name }}</strong>,</p>\n<p>We received your updated project submission with a revised budget of <strong>${{ $('Validate Input').first().json.project_budget }}</strong>.</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3056,
+        -448
+      ],
+      "id": "c9b76763-40e7-46be-92b8-e913f010caaf",
+      "name": "Send a message",
+      "webhookId": "00000000-0000-0000-0000-000000000000",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.budget_changed }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    },
+                    "id": "a79d5741-da3d-4a10-a2de-e070fc2d4fa4"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b60a3c6b-e444-424c-9d3a-837a8394dcd7",
+                    "leftValue": "={{ $json.budget_changed }}",
+                    "rightValue": false,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1168,
+        -192
+      ],
+      "id": "35a48c80-b317-4a52-88fb-a0681f756f0f",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"🔄 *Duplicate Lead Updated*\\n*Name:* {{ $('Validate Input').first().json.client_name }}\\n*Email:* {{ $('Validate Input').first().json.client_email }}\\n*New Budget:* ${{ $('Validate Input').first().json.project_budget }}\\n*New AI Score:* {{ $('Calculate Final Score').first().json.final_score }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3312,
+        -448
+      ],
+      "id": "f9980584-8658-4191-a691-37f1816593a4",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"⚠️ *Duplicate Lead Received (No Email Consent)*\\n*Name:* {{ $('Validate Input').first().json.client_name }}\\n*Email:* {{ $('Validate Input').first().json.client_email }}\\n*Company:* {{ $('Validate Input').first().json.company_name }}\\n*Budget:* {{ $('Validate Input').first().json.project_budget }}\\n_Note: Customer opted out of automated AI proposal emails._\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1392,
+        -432
+      ],
+      "id": "db1ec50e-7b19-486e-bd5a-f9c6f37af45b",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\n\n// Extract and trim fields\nconst email = body.client_email ? String(body.client_email).trim() : '';\nconst name = body.client_name ? String(body.client_name).trim() : '';\nconst company = body.company_name ? String(body.company_name).trim() : '';\nconst budget = body.project_budget ? String(body.project_budget).trim() : '$0';\nconst consent = body.consent === true || body.consent === 'true' || body.consent === 'on';\n\n// Email regex pattern validation\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nconst isValidEmail = emailRegex.test(email);\nconst hasRequiredFields = name.length > 0 && company.length > 0;\n\nreturn [{\n  json: {\n    is_valid: isValidEmail && hasRequiredFields,\n    client_email: email,\n    client_name: name,\n    company_name: company,\n    project_budget: budget,\n    consent: consent,\n    validation_error: !isValidEmail ? 'Invalid email format' : (!hasRequiredFields ? 'Missing required fields' : null)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        -16
+      ],
+      "id": "6d7724c8-817e-4440-b4e8-4de69eb23b96",
+      "name": "Validate Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f01f40ea-9854-401c-af5e-fa3d903286e2",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -288,
+        -16
+      ],
+      "id": "d454784b-af09-4032-90d7-c3a84480e391",
+      "name": "Is Form Valid?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4263abc4-6263-46e3-beaa-b16ea1a2b1fc",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        864,
+        -32
+      ],
+      "id": "b773708f-8835-48ce-8d73-42ac2bc5e263",
+      "name": "Is Duplicate?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $('Validate Input').first().json;\n\n// Format name to Title Case\nconst cleanName = raw.client_name\n  ? raw.client_name.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')\n  : '';\n\n// Parse numeric budget safely\nconst numericBudget = typeof raw.project_budget === 'string'\n  ? parseInt(raw.project_budget.replace(/[^0-9]/g, ''), 10) || 0\n  : Number(raw.project_budget || 0);\n\nreturn [{\n  json: {\n    client_name: cleanName,\n    client_email: raw.client_email ? raw.client_email.toLowerCase() : '',\n    company_name: raw.company_name ? raw.company_name.trim().toUpperCase() : '',\n    project_budget: numericBudget,\n    timeline: raw.timeline || \"Not specified\",\n    project_details: raw.project_details || \"No details provided\",\n    consent: raw.consent,\n    is_duplicate: false\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        -144
+      ],
+      "id": "3a0b9a64-7249-4c4f-b080-dc87b6e23ade",
+      "name": "Normalize Lead Data"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3.5-flash-lite",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3.5-flash-lite"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Evaluate this lead and respond ONLY with a valid JSON object (no markdown backticks, no explanatory text).\n\nInquiry Data:\n- Client Name: {{ $('Validate Input').first().json.client_name }}\n- Company: {{ $('Validate Input').first().json.company_name }}\n- Budget: ${{ $('Validate Input').first().json.project_budget }}\n- Timeline: {{ $('Validate Input').first().json.timeline || \"\" }}\n- Details: {{ $('Validate Input').first().json.project_details || \"\" }}\n\nScoring Rules (0-100 total):\n- budget_score: If budget >= 10000 give 40 points, if >= 5000 give 25, else 10.\n- intent_score: If details show clear goals/urgency give 30 points, else 10.\n- fit_score: If project fits AI/automation services give 30 points, else 10.\n\nReturn EXACTLY this structure:\n{\n  \"budget_score\": 40,\n  \"intent_score\": 30,\n  \"fit_score\": 30,\n  \"summary\": \"Short 1-sentence evaluation\"\n}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1744,
+        -144
+      ],
+      "id": "18c32ac7-7248-447d-90bb-447bfba7b3a2",
+      "name": "Analyze Lead (Gemini)",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// Extract raw text string from Gemini's nested response format\nlet rawText = \"\";\nif (input.content?.parts?.[0]?.text) {\n  rawText = input.content.parts[0].text;\n} else if (input.text) {\n  rawText = input.text;\n} else {\n  rawText = JSON.stringify(input);\n}\n\n// Clean markdown code blocks if Gemini included them\nconst cleanedText = rawText.replace(/```json\\n?|```/g, '').trim();\n\nlet parsed = {};\ntry {\n  parsed = JSON.parse(cleanedText);\n} catch (e) {\n  parsed = {\n    budget_score: 10,\n    intent_score: 10,\n    fit_score: 10,\n    summary: rawText\n  };\n}\n\nreturn [{ json: parsed }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        -144
+      ],
+      "id": "6d09aab0-d19e-4bce-9ba8-ec6e58ad55a6",
+      "name": "Parse AI Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiItem = $input.first() ? $input.first().json : {};\nconst validateInput = $('Validate Input').first() ? $('Validate Input').first().json : {};\n\n// Extract numbers dynamically (no manual overrides)\nconst budget = parseInt(aiItem.budget_score || 0, 10);\nconst intent = parseInt(aiItem.intent_score || 0, 10);\nconst fit = parseInt(aiItem.fit_score || 0, 10);\n\nconst totalScore = budget + intent + fit;\nconst isHigh = totalScore >= 70;\n\nreturn [\n  {\n    json: {\n      ...validateInput,\n      budget_score: budget,\n      intent_score: intent,\n      fit_score: fit,\n      final_score: totalScore,\n      is_high_priority: isHigh,\n      priority_tag: isHigh ? \"High Priority\" : \"Low Priority\",\n      ai_summary: aiItem.summary || \"No summary provided\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2336,
+        -144
+      ],
+      "id": "1921662a-e760-4892-845c-b9ab2c6c29b4",
+      "name": "Calculate Final Score"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.final_score }}",
+                    "rightValue": 70,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "f3b1d9fd-9b7f-4451-ab1d-58ca48c3a31d"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "fb8d03c8-2f3a-43aa-9661-f5bd8a406073",
+                    "leftValue": "={{ $json.final_score }}",
+                    "rightValue": 69,
+                    "operator": {
+                      "type": "number",
+                      "operation": "lte"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2176,
+        320
+      ],
+      "id": "4526acf0-61f3-4f82-ac4b-cd1a9f6ad80d",
+      "name": "Route by Lead Score"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"🔥 *HIGH PRIORITY LEAD DETECTED*\\n*Name:* {{ $json.client_name }}\\n*Email:* {{ $json.client_email }}\\n*Company:* {{ $json.company_name }}\\n*Budget:* {{ $json.project_budget }}\\n*Lead Score:* {{ $json.final_score }}/100\\n*AI Summary:* {{ $json.ai_summary }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2512,
+        304
+      ],
+      "id": "1beb1574-c85c-47d8-9b8e-aed54efbc566",
+      "name": "Slack High Priority Alert"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Input').first().json.client_email }}",
+        "subject": "=Priority Proposal for {{ $('Validate Input').first().json.company_name }}",
+        "message": "=<p>Hi <strong>{{ $('Validate Input').first().json.client_name }}</strong>,</p>\n\n<p>Thank you for reaching out! We reviewed your project inquiry for <strong>{{ $('Validate Input').first().json.company_name }}</strong> and would love to assist with your build.</p>\n\n<p><strong>AI Lead Evaluation Summary:</strong><br />\n{{ $node[\"Calculate Final Score\"].json.ai_summary }}</p>\n\n<p>Would you be available for a brief 15-minute intro call this week to discuss details?</p>\n\n<p>Best regards,<br />\n<strong>AI Specialist</strong></p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2832,
+        304
+      ],
+      "id": "e28d3cb9-ae06-4b91-a992-75275656aca9",
+      "name": "Send Outreach Email",
+      "webhookId": "00000000-0000-0000-0000-000000000000",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1430418891,
+          "mode": "list",
+          "cachedResultName": "High Priority",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1430418891"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.format('yyyy-MM-dd HH:mm:ss') }}",
+            "Client Name": "={{ $('Validate Input').first().json.client_name }}",
+            "Client Email": "={{ $('Validate Input').first().json.client_email }}",
+            "Company Name": "={{ $('Validate Input').first().json.company_name }}",
+            "Project Budget": "={{ $('Validate Input').first().json.project_budget }}",
+            "Score": "={{ $('Calculate Final Score').first().json.final_score }}",
+            "AI Insight": "={{ $('Calculate Final Score').first().json.ai_summary }}",
+            "Status": "={{ $('Calculate Final Score').first().json.priority_tag }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Client Name",
+              "displayName": "Client Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Client Email",
+              "displayName": "Client Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company Name",
+              "displayName": "Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Project Budget",
+              "displayName": "Project Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "AI Insight",
+              "displayName": "AI Insight",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3056,
+        304
+      ],
+      "id": "88535698-2b94-43a4-a765-aaed82192757",
+      "name": "Append High Priority Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 886943764,
+          "mode": "list",
+          "cachedResultName": "Low Priority",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=886943764"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Client Name": "={{ $json.client_name }}",
+            "Client Email": "={{ $json.client_email }}",
+            "Company Name": "={{ $json.company_name }}",
+            "Project Budget": "={{ $json.project_budget }}",
+            "Score": "={{ $json.final_score }}",
+            "AI Insight": "={{ $json.ai_summary }}",
+            "Timestamp": "={{ $now.format('yyyy-MM-dd HH:mm:ss') }}",
+            "Status": "={{ $json.priority_tag }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Client Name",
+              "displayName": "Client Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Client Email",
+              "displayName": "Client Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company Name",
+              "displayName": "Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Project Budget",
+              "displayName": "Project Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "AI Insight",
+              "displayName": "AI Insight",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2368,
+        544
+      ],
+      "id": "021d5531-225a-47de-b9e8-471d336b1151",
+      "name": "Append Low Priority Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"ℹ️ *Low Priority Lead Nurtured*\\n*Name:* {{ $json.client_name }} (Score: {{ $json.final_score }}/100)\\n*Action:* Added to low-priority sheet.\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2592,
+        544
+      ],
+      "id": "7ea30ba4-3251-4875-8ea5-2da4ccc07b65",
+      "name": "HTTP Request2"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1430418891,
+          "mode": "list",
+          "cachedResultName": "High Priority",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1430418891"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Client Email",
+              "lookupValue": "={{ $('Validate Input').first().json.client_email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        48,
+        -32
+      ],
+      "id": "ff840744-0d81-4f08-a56b-7935f0d76ccf",
+      "name": "Search High Priority",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 886943764,
+          "mode": "list",
+          "cachedResultName": "Low Priority",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=886943764"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Client Email",
+              "lookupValue": "={{ $('Validate Input').first().json.client_email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        320,
+        -32
+      ],
+      "id": "4fa19f42-aa1f-4876-a51e-6ed047834179",
+      "name": "Search Low Priority",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const highResults = $node[\"Search High Priority\"] ? $('Search High Priority').all() : [];\nconst lowResults = $node[\"Search Low Priority\"] ? $('Search Low Priority').all() : [];\n\nconst highMatch = highResults.find(item => item.json && item.json[\"Client Email\"] && item.json[\"Client Email\"].trim() !== \"\");\nconst lowMatch = lowResults.find(item => item.json && item.json[\"Client Email\"] && item.json[\"Client Email\"].trim() !== \"\");\n\nlet match = highMatch ? highMatch.json : (lowMatch ? lowMatch.json : null);\nlet tabSource = highMatch ? \"High Priority\" : (lowMatch ? \"Low Priority\" : null);\n\nconst inputBudget = $('Validate Input').first().json.project_budget;\nconst newBudget = Number(inputBudget || 0);\n\nif (match) {\n  const oldBudget = Number(match[\"Project Budget\"] || 0);\n  const rowNum = match.row_number || match.row_id || 2;\n\n  return [{\n    json: {\n      ...match,\n      found_in_tab: tabSource,\n      row_number: rowNum,\n      is_duplicate: true,\n      old_budget: oldBudget,\n      new_budget: newBudget,\n      budget_changed: newBudget !== oldBudget\n    }\n  }];\n}\n\n// Strictly mark as NOT duplicate for new leads\nreturn [{\n  json: {\n    is_duplicate: false,\n    found_in_tab: null,\n    new_budget: newBudget\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -32
+      ],
+      "id": "db4e24cc-6438-49db-be15-c562745596c3",
+      "name": "Merge Sheet Lookups"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "31cecb80-24c1-40b9-af03-1cb290e04b6f",
+              "leftValue": "={{ $json.is_duplicate || $('Merge Sheet Lookups').first().json.is_duplicate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2656,
+        -144
+      ],
+      "id": "04687ca4-687a-4dac-8225-b73c7298edea",
+      "name": "Is Duplicate Check",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergeData = $('Merge Sheet Lookups').first().json;\nconst scoreData = $('Calculate Final Score').first().json;\nconst parseData = $('Parse AI Output').first().json;\n\n// Explicitly retrieve tab location and check if duplicate exists\nconst oldTab = mergeData.found_in_tab || null; \nconst newTab = scoreData.priority_tag || \"High Priority\"; \nconst rowNum = mergeData.row_number || null;\nconst isDuplicate = mergeData.is_duplicate === true;\n\n// Only flag tab_changed as true IF it is a duplicate AND the tab actually moved\nconst tabChanged = isDuplicate && oldTab !== null && oldTab !== newTab;\n\nreturn [{\n  json: {\n    ...$json,\n    ...scoreData,\n    ...parseData,\n    old_tab: oldTab,\n    new_tab: newTab,\n    row_number_to_delete: rowNum,\n    tab_changed: tabChanged\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3536,
+        -448
+      ],
+      "id": "c06da40f-8ce7-4b7e-a96c-64657b8b4b30",
+      "name": "Check Tab Shift"
+    }
+  ],
+  "pinData": {},
+  "connections": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "00000000-0000-0000-0000-000000000000",
+  "meta": {
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "YOUR_WORKFLOW_ID",
+  "tags": []
+}
